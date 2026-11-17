@@ -22,3 +22,167 @@ def draw_text(surface, text, size, color, x, y, center=True):
         text_rect.topleft = (x, y)
     surface.blit(text_surface, text_rect)
     return text_rect
+
+
+class Pacman:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.direction = STOP
+        self.next_direction = STOP
+        self.speed = 3
+        self.radius = TILE_SIZE // 2 - 4
+        self.mouth_angle = 0
+        self.mouth_opening = True
+        self.lives = 3
+        self.score = 0
+        self.power_mode = False
+        self.power_timer = 0
+
+    def update(self, maze, pellets):
+        # Try to change direction if next_direction is free
+        if self.next_direction != STOP:
+            if self.can_move(self.next_direction, maze):
+                self.direction = self.next_direction
+                self.next_direction = STOP
+
+        # Move if possible
+        if self.can_move(self.direction, maze):
+            self.x += self.direction[0] * self.speed
+            self.y += self.direction[1] * self.speed
+
+        # Keep inside bounds (tunnel wrap)
+        if self.x < 0:
+            self.x = SCREEN_WIDTH - self.radius
+        elif self.x > SCREEN_WIDTH:
+            self.x = self.radius
+
+        # Mouth animation
+        if self.direction != STOP:
+            if self.mouth_opening:
+                self.mouth_angle += 8
+                if self.mouth_angle >= 45:
+                    self.mouth_opening = False
+            else:
+                self.mouth_angle -= 8
+                if self.mouth_angle <= 0:
+                    self.mouth_opening = True
+
+        # Power mode timer
+        if self.power_mode:
+            self.power_timer -= 1
+            if self.power_timer <= 0:
+                self.power_mode = False
+
+        # Eat pellets
+        self.eat_pellets(pellets)
+
+    def can_move(self, direction, maze):
+        if direction == STOP:
+            return False
+        # Check the next tile in that direction
+        next_x = self.x + direction[0] * (self.radius + 4)
+        next_y = self.y + direction[1] * (self.radius + 4)
+        col = int(next_x // TILE_SIZE)
+        row = int(next_y // TILE_SIZE)
+        if 0 <= row < len(maze) and 0 <= col < len(maze[0]):
+            return maze[row][col] != 1
+        return True  # allow wrap around
+
+    def eat_pellets(self, pellets):
+        for pellet in pellets[:]:
+            if abs(self.x - pellet.x) < 20 and abs(self.y - pellet.y) < 20:
+                if pellet.is_power:
+                    self.power_mode = True
+                    self.power_timer = 300  # 5 seconds at 60 fps
+                    self.score += 50
+                else:
+                    self.score += 10
+                pellets.remove(pellet)
+
+    def draw(self, screen):
+        # Body
+        pygame.draw.circle(screen, YELLOW, (int(self.x), int(self.y)), self.radius)
+        # Mouth (simple pie slice)
+        if self.direction != STOP:
+            start_angle = 0
+            if self.direction == RIGHT:
+                start_angle = self.mouth_angle
+            elif self.direction == LEFT:
+                start_angle = 180 - self.mouth_angle
+            elif self.direction == UP:
+                start_angle = 90 + self.mouth_angle
+            elif self.direction == DOWN:
+                start_angle = 270 - self.mouth_angle
+            # Draw mouth by covering with black
+            mouth_points = [
+                (self.x, self.y),
+                (self.x + self.radius * pygame.math.Vector2(1, 0).rotate(start_angle).x,
+                 self.y + self.radius * pygame.math.Vector2(1, 0).rotate(start_angle).y),
+                (self.x + self.radius * pygame.math.Vector2(1, 0).rotate(start_angle + self.mouth_angle*2).x,
+                 self.y + self.radius * pygame.math.Vector2(1, 0).rotate(start_angle + self.mouth_angle*2).y),
+            ]
+            pygame.draw.polygon(screen, BLACK, mouth_points)
+
+class Ghost:
+    def __init__(self, x, y, color):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.direction = random.choice([UP, DOWN, LEFT, RIGHT])
+        self.speed = 2
+        self.radius = TILE_SIZE // 2 - 4
+        self.frightened = False
+
+    def update(self, maze, pacman):
+        # Simple AI: random walk with occasional chase
+        if random.random() < 0.02 or not self.can_move(self.direction, maze):
+            possible = [UP, DOWN, LEFT, RIGHT]
+            random.shuffle(possible)
+            for d in possible:
+                if self.can_move(d, maze):
+                    self.direction = d
+                    break
+
+        # Move
+        if self.can_move(self.direction, maze):
+            self.x += self.direction[0] * self.speed
+            self.y += self.direction[1] * self.speed
+
+        # Wrap around
+        if self.x < 0:
+            self.x = SCREEN_WIDTH
+        elif self.x > SCREEN_WIDTH:
+            self.x = 0
+
+        # Frightened mode based on pacman power
+        self.frightened = pacman.power_mode
+
+    def can_move(self, direction, maze):
+        next_x = self.x + direction[0] * (self.radius + 4)
+        next_y = self.y + direction[1] * (self.radius + 4)
+        col = int(next_x // TILE_SIZE)
+        row = int(next_y // TILE_SIZE)
+        if 0 <= row < len(maze) and 0 <= col < len(maze[0]):
+            return maze[row][col] != 1
+        return True
+
+    def draw(self, screen):
+        color = BLUE if self.frightened else self.color
+        pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.radius)
+        # Eyes
+        pygame.draw.circle(screen, WHITE, (int(self.x - 8), int(self.y - 5)), 5)
+        pygame.draw.circle(screen, WHITE, (int(self.x + 8), int(self.y - 5)), 5)
+        pygame.draw.circle(screen, BLACK, (int(self.x - 8), int(self.y - 5)), 2)
+        pygame.draw.circle(screen, BLACK, (int(self.x + 8), int(self.y - 5)), 2)
+
+class Pellet:
+    def __init__(self, x, y, is_power=False):
+        self.x = x
+        self.y = y
+        self.is_power = is_power
+        self.radius = 8 if is_power else 4
+
+    def draw(self, screen):
+        color = WHITE if not self.is_power else GREEN
+        pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.radius)
