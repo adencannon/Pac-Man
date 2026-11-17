@@ -186,3 +186,169 @@ class Pellet:
     def draw(self, screen):
         color = WHITE if not self.is_power else GREEN
         pygame.draw.circle(screen, color, (int(self.x), int(self.y)), self.radius)
+
+
+class PacmanGame:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        pygame.display.set_caption("Beginner's Pac-Man")
+        self.clock = pygame.time.Clock()
+        self.running = True
+        self.state = MENU
+        self.high_score = load_high_score()
+        self.reset_game()
+
+    def reset_game(self):
+        self.pacman = Pacman(400, 500)
+        self.ghosts = [
+            Ghost(360, 320, RED),
+            Ghost(400, 320, PINK),
+            Ghost(440, 320, CYAN),
+            Ghost(400, 280, ORANGE),
+        ]
+        self.pellets = []
+        self.create_pellets()
+        self.pacman.lives = 3
+        self.pacman.score = 0
+
+    def create_pellets(self):
+        self.pellets.clear()
+        for row in range(len(MAZE)):
+            for col in range(len(MAZE[0])):
+                if MAZE[row][col] == 0:
+                    x = col * TILE_SIZE + TILE_SIZE // 2
+                    y = row * TILE_SIZE + TILE_SIZE // 2
+                    self.pellets.append(Pellet(x, y, False))
+                elif MAZE[row][col] == 3:
+                    x = col * TILE_SIZE + TILE_SIZE // 2
+                    y = row * TILE_SIZE + TILE_SIZE // 2
+                    self.pellets.append(Pellet(x, y, True))
+
+    def draw_maze(self):
+        for row in range(len(MAZE)):
+            for col in range(len(MAZE[0])):
+                if MAZE[row][col] == 1:
+                    rect = pygame.Rect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+                    pygame.draw.rect(self.screen, DARK_BLUE, rect)
+                    pygame.draw.rect(self.screen, BLUE, rect, 2)
+
+    def check_collisions(self):
+        for ghost in self.ghosts:
+            dist = ((self.pacman.x - ghost.x)**2 + (self.pacman.y - ghost.y)**2)**0.5
+            if dist < self.pacman.radius + ghost.radius - 5:
+                if self.pacman.power_mode:
+                    # Eat ghost
+                    self.pacman.score += 200
+                    ghost.x = 400
+                    ghost.y = 320
+                else:
+                    # Lose life
+                    self.pacman.lives -= 1
+                    if self.pacman.lives <= 0:
+                        if self.pacman.score > self.high_score:
+                            self.high_score = self.pacman.score
+                            save_high_score(self.high_score)
+                        self.state = GAME_OVER
+                    else:
+                        # Reset positions
+                        self.pacman.x = 400
+                        self.pacman.y = 500
+                        self.pacman.direction = STOP
+                        for g in self.ghosts:
+                            g.x = 400
+                            g.y = 320
+
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            if event.type == pygame.KEYDOWN:
+                if self.state == MENU:
+                    if event.key == pygame.K_SPACE:
+                        self.state = PLAYING
+                        self.reset_game()
+                elif self.state == PLAYING:
+                    if event.key == pygame.K_UP or event.key == pygame.K_w:
+                        self.pacman.next_direction = UP
+                    elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                        self.pacman.next_direction = DOWN
+                    elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                        self.pacman.next_direction = LEFT
+                    elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                        self.pacman.next_direction = RIGHT
+                    elif event.key == pygame.K_p:
+                        self.state = PAUSED
+                    elif event.key == pygame.K_ESCAPE:
+                        self.running = False
+                elif self.state == PAUSED:
+                    if event.key == pygame.K_p:
+                        self.state = PLAYING
+                elif self.state in (GAME_OVER, WIN):
+                    if event.key == pygame.K_r:
+                        self.state = PLAYING
+                        self.reset_game()
+                    elif event.key == pygame.K_ESCAPE:
+                        self.running = False
+
+    def update(self):
+        if self.state != PLAYING:
+            return
+        self.pacman.update(MAZE, self.pellets)
+        for ghost in self.ghosts:
+            ghost.update(MAZE, self.pacman)
+        self.check_collisions()
+        if len(self.pellets) == 0:
+            self.state = WIN
+            if self.pacman.score > self.high_score:
+                self.high_score = self.pacman.score
+                save_high_score(self.high_score)
+
+    def draw(self):
+        self.screen.fill(BLACK)
+        if self.state == MENU:
+            draw_text(self.screen, "PAC-MAN", 80, YELLOW, SCREEN_WIDTH//2, 200)
+            draw_text(self.screen, "Beginner's Edition", 40, WHITE, SCREEN_WIDTH//2, 280)
+            draw_text(self.screen, "Press SPACE to Start", 36, GREEN, SCREEN_WIDTH//2, 400)
+            draw_text(self.screen, f"High Score: {self.high_score}", 30, WHITE, SCREEN_WIDTH//2, 480)
+            draw_text(self.screen, "Arrow Keys / WASD to Move", 24, GRAY, SCREEN_WIDTH//2, 550)
+            draw_text(self.screen, "P to Pause | R to Restart | ESC to Quit", 20, GRAY, SCREEN_WIDTH//2, 590)
+        elif self.state == PLAYING or self.state == PAUSED:
+            self.draw_maze()
+            for pellet in self.pellets:
+                pellet.draw(self.screen)
+            self.pacman.draw(self.screen)
+            for ghost in self.ghosts:
+                ghost.draw(self.screen)
+            # HUD
+            draw_text(self.screen, f"Score: {self.pacman.score}", 28, WHITE, 100, 30, center=False)
+            draw_text(self.screen, f"Lives: {self.pacman.lives}", 28, WHITE, 300, 30, center=False)
+            draw_text(self.screen, f"High: {self.high_score}", 28, WHITE, 500, 30, center=False)
+            if self.pacman.power_mode:
+                draw_text(self.screen, "POWER!", 28, GREEN, 680, 30, center=False)
+            if self.state == PAUSED:
+                draw_text(self.screen, "PAUSED", 60, YELLOW, SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
+                draw_text(self.screen, "Press P to Resume", 30, WHITE, SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 60)
+        elif self.state == GAME_OVER:
+            draw_text(self.screen, "GAME OVER", 70, RED, SCREEN_WIDTH//2, 250)
+            draw_text(self.screen, f"Final Score: {self.pacman.score}", 40, WHITE, SCREEN_WIDTH//2, 350)
+            draw_text(self.screen, f"High Score: {self.high_score}", 36, YELLOW, SCREEN_WIDTH//2, 420)
+            draw_text(self.screen, "Press R to Restart", 30, GREEN, SCREEN_WIDTH//2, 500)
+            draw_text(self.screen, "Press ESC to Quit", 24, GRAY, SCREEN_WIDTH//2, 560)
+        elif self.state == WIN:
+            draw_text(self.screen, "YOU WIN!", 70, GREEN, SCREEN_WIDTH//2, 250)
+            draw_text(self.screen, f"Final Score: {self.pacman.score}", 40, WHITE, SCREEN_WIDTH//2, 350)
+            draw_text(self.screen, f"High Score: {self.high_score}", 36, YELLOW, SCREEN_WIDTH//2, 420)
+            draw_text(self.screen, "Press R to Play Again", 30, GREEN, SCREEN_WIDTH//2, 500)
+            draw_text(self.screen, "Press ESC to Quit", 24, GRAY, SCREEN_WIDTH//2, 560)
+
+        pygame.display.flip()
+
+    def run(self):
+        while self.running:
+            self.handle_events()
+            self.update()
+            self.draw()
+            self.clock.tick(FPS)
+        pygame.quit()
+        sys.exit()
